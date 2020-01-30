@@ -1,0 +1,197 @@
+/**
+ * simple installer application to avoid manually configuring the application
+ * just run the script. 
+ * Logs are displayed in the console and in the log file of your workspace (toolbar > logs)
+ */
+
+var channel = require("channel");
+var subdomain = require("subdomain");
+var device = require("device");
+var document = require("document");
+var config = require("./config");
+var log = require("log");
+log.setLevel("info");
+
+const TOTAL_STEPS = 4;
+
+var errors = 0;
+var warnings = 0;
+var completedSteps = 0;
+var deviceToken = "";
+
+// step 1: create the responseChannel channel
+createChannel(config.dashboardChannel, {subscribeACL: "authenticated", publishACL: "authenticated"});
+
+// step 2: create a sub-domain
+createSubdomain();
+
+// step 3: create a device and its token
+createScriptrDevice();
+
+// step 4: save the provided email in the data store
+saveEmail();
+
+if (errors > 0) {
+    return "Installation failed with " + errors + " errors. Please check logs";
+}
+
+if (warnings > 0) {
+
+    if (completedSteps ==  TOTAL_STEPS) {
+        
+        var msg = "Installation successful but reported " + warnings + " warnings. Please check logs. ";
+        msg += "Use the following device token when sending requests to scriptr.io: " + generateToken;
+        return msg;
+    }else {
+        return " Inconsistent state with" + warnings + " warnings. Number of completed tasks is " + completedSteps + " over " + TOTAL_STEPS + ". Please check logs";
+    }    
+}
+
+var msg = "Installation successful. Number of completed tasks is " + completedSteps + " over " + TOTAL_STEPS;
+msg += ". Use the following device token when sending requests to scriptr.io: " + generateToken;
+return msg;
+
+function createChannel(name, options) {
+
+    // create the eurotech channel = "";
+    trace("Creating the " +  name + " channel...");
+    var resp = channel.create(name, options);
+    if (resp.metadata.status == "failure") {
+
+        if (resp.metadata.errorCode == "DUPLICATE_CHANNEL") {
+
+            trace(name + " channel already exists. Skipping this step.", "Warning");            
+            return stepComplete(true);
+        } else {
+
+            trace("Failed to create the " +  name  + " channel. Please try manually.\n" + JSON.stringify(resp), "Error");  
+            return stepFailed();
+        }
+    }else {
+
+        trace("Successfully created the " + name  + " channel.");
+        return stepComplete(false);
+    }
+}
+
+function createSubdomain(prefix) {
+
+    trace("Creating sub-domain...");
+    var id = guid();
+    var name = config.subdomain ? config.subdomain : prefix + "-" + id;
+    var resp = subdomain.create(name);
+    if (resp.metadata.status == "failure") {
+
+        if (resp.metadata.errorCode == "MAX_SUBDOMAINS_EXCEEDED") {
+
+            trace("A sub-domain already exists. Skipping this step.", "Warning");            
+            return stepComplete(true);
+        }else {
+            trace("Failed to create subdomain " + name + ".\n" +  JSON.stringify(resp), "Error");
+            return stepFailed();
+        }
+    }else {
+        trace("Successfully created subdomain " + name);
+        return stepComplete(false);
+    }
+}
+
+function createScriptrDevice() {
+
+    var deviceId = request.parameters.deviceId;
+    if (!deviceId) {
+
+        deviceId = config.DEFAULT_DEVICE_ID;
+        trace("No deviceId was provided as a parameter when running this installer script.\n" +
+              "Will use the default device id ("+ deviceId + ") from '/stm/lenox/installer/config'", "Warning");
+    }
+
+    trace("Saving device " + deviceId + "...");
+    var resp = device.create({id: deviceId, name: deviceId, password: guid()});
+    if (resp.metadata.status == "failure") {
+
+        if (resp.metadata.errorCode == "DUPLICATE_DEVICE") {
+
+            resp = device.get(deviceId);
+            generateToken = resp.result.auth_token;            
+            trace("Device " + deviceId +  " already exists. Skipping this step.\nPlease note its token: " + generateToken, "Warning"); 
+            return stepComplete(true);
+        }else {
+
+            trace("Could not create device " + deviceId + ".\n" + JSON.stringify(resp), "Error");             
+            return stepFailed();
+        }
+    }else {
+        return generateToken(deviceId);
+    }
+}
+
+function generateToken(deviceId) {
+
+    var resp = device.generateToken(deviceId);    
+    if (resp.metadata.status == "failure") {
+
+        trace("Could not generate token for device " + deviceId 
+              + " .Please make sure to generate one manually and launch installer again.\n" + JSON.stringify(resp), "Error");
+        return stepFailed();
+    }
+
+    generateToken = resp.result.token;
+    trace("Token generated successfully. Please note it: " + generateToken);    
+    return stepComplete(false);
+}
+
+function saveEmail() {
+
+    trace("Saving the email address that will be used to send alerts to...");
+    var email = request.parameters.email;
+    if (!email) {
+
+        email = config.DEFAULT_EMAIL;
+        trace("No email provided as parameter when running this install script.\n" +
+              "Will use default (" + config.DEFAULT_EMAIL + ") from '/stm/lenox/install/config' script", "Warning");            
+    }
+
+    var resp = document.save({"key": config.ALERT_EMAIL_DOC_KEY, "email": email});
+    if (resp.metadata.status == "failure") {
+
+        trace("Could not save email address " + email +  " due to:\n" + JSON.stringify(resp) 
+              + "Will use default (" + config.DEFAULT_EMAIL + ") from '/stm/lenox/install/config' script", "Warning");          
+    }
+
+    return stepComplete(true); 
+}
+
+
+function trace(msg, level) {
+
+    log.info(msg); 
+    console.log((level ? level + " - " : "") + msg);
+}
+
+function guid() {
+
+    var choice = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var id = "";
+    for(var i = 0; i < 6; i++) {
+
+        var pick = choice[Math.round(Math.random() * (choice.length - 1))];
+        id += pick
+    }
+
+    return id;
+}
+
+function stepComplete(withWarning) {
+
+    if(withWarning) {
+        warnings++;
+    }
+
+    completedSteps++;
+    return completedSteps;
+}
+
+function stepFailed() {
+    return ++errors;
+}

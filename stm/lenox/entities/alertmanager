@@ -1,0 +1,179 @@
+/**
+ * Handle read/write operatons on alerts in the data store. 
+ * Detect glitches to send alerts
+ */ 
+
+var document = require("document");
+var config = require("../installer/config");
+var deviceManager = require("./devicemanager");
+var log = require("log");
+
+const THRESHOLD_DOC = "stm_lenox_thresholds"; // the ley of the document that stores user defined thresholds
+log.setLevel("info");
+
+/** 
+ * send alert email for every glitch detected
+ * @param {Object} [data]: the data sent by the device
+ * @return {Number} number of glitches found in data. Could be 0 -> 2.
+ */
+function sendAlertIfGlitchDetected(data) {
+
+    var glitches = detectGlitch(data);log.info("glitches: " + JSON.stringify(glitches));
+    var glitchesFound = 0;
+    var email = getAlertEmail();
+    if (glitches.magnitudeGlitch) {
+	
+        saveAlert({type: "magnitude", "value": data.magnitude, "epoch": data.epoch});
+        sendMail(email, "Monitor", "Alert raised", "Magnitude too high: " + data.magnitude);
+        glitchesFound++;
+    }
+
+    if (glitches.temperatureGlitch) {
+
+        saveAlert({type: "temperature", "value": data.temperature, "epoch": data.epoch});
+        sendMail(email, "Monitor", "Alert raised", "Temperature too high: " + data.temperature);
+        glitchesFound++;
+    }
+	
+    return glitchesFound;
+}
+
+/**
+ * Compare temperature and magnitude measurments to corresponding threasholds
+ * @param {Object} [data]: the data sent by the device
+ * @return {magnitudeGlith: true/false, temperatureGlitch: true/false}
+ */
+function detectGlitch(data) {
+
+    var thresholds = getThresholds();
+    return  {
+
+        magnitudeGlitch: data.magnitude && (data.magnitude > thresholds.maxMagnitude),
+        temperatureGlitch: data.temperature && (data.temperature > thresholds.maxTemperature)
+    };
+}
+
+/**
+ * Get temperature and magnitude thresholds (user defined or default)
+ * if no thresholds defined by user, returns defaults specified in config file
+ * @return {maxMagnitude: max_magnitude_threshold, maxTemperatur: max_temperature_threshold
+ */
+function getThresholds() {
+
+    // set alert threshold to default value from config script
+    var maxMagnitude = config.MAX_MAGNITUDE;
+    var maxTemperature = config.MAX_TEMPERATURE;
+
+    // check for user-defined thresholds in data store
+    var resp = document.get(THRESHOLD_DOC);
+    if (resp.result) {
+
+        maxMagnitude = resp.result.max_magnitude ? parseInt(resp.result.max_magnitude) : maxMagnitude;
+        maxTemperature = resp.result.max_temperature ? parseInt(resp.result.max_temperature) : maxTemperature;
+    }
+
+    return {
+
+        maxMagnitude: maxMagnitude,
+        maxTemperature: maxTemperature
+    };
+}
+
+/**
+ * Query the data store to return (50 * (pageNumber - 1)) to (50 * pageNumber) alert documents
+ * @param {Number} pageNumber: optional, if specified, instructs the query to return alerts from pageNumber - 1
+ * @return {Object} {count: total_alerts, documents: page_of_alert_documents, dataCount: total_device_data}
+ */
+function listAlerts(pageNumber) {
+
+    var thresholds = getThresholds();
+    var queryObject = {
+
+        fields:"type, value, epoch, creationDate", 
+        query: 'doctype = "alert"',
+        count:true,
+        pageNumber: pageNumber ? pageNumer : 1
+    };
+
+    var resp = document.query(queryObject); 
+    if (resp.metadata.status == "failure") {
+
+        log.error("alertmanager.listAlerts:\n" + JSON.stringify(resp));
+        throw resp;
+    }
+
+    // get total count of device data and add it to the result
+    resp.result.totaldata = parseInt(deviceManager.listHistoricalData().count);
+    resp.result.count = parseInt(resp.result.count);
+    return resp.result;
+}
+
+/**
+ * persist the provided alert object into a document of the data store
+ * @param {Object} [obj]: the alert object 
+ * @param {Number} [obj.epoch]: the time in seconds at which the value that triggered the alert was measured
+ * @param {Number} [obj.value]: the value justifying the trigerring of the alert
+ * @param {String} [obj.type]: the type of measurment  (one of "temperature"or "magnitude")
+ */
+function saveAlert(obj) {
+
+    obj.doctype = "alert";
+    obj["meta.types"] = {
+
+        epoch: "numeric",
+        value: "numeric",
+        type: "string"
+    };
+
+    var resp = document.save(obj);
+    if (resp.metadata.status == "failure") {
+
+        log.error("alertmanager.saveAlert:\n" + JSON.stringify(resp) + "\nData:\n" + JSON.stringify(obj));
+        throw resp;
+    }
+}
+
+/**
+ * Save the user defined threshold for the provided measurment type
+ * @param {Object} [obj]: the threshold
+ * @param {String} [obj.type]: "temperature" or "humidity"
+ * @param {Number} [obje.value]: some threshold 
+ */
+function setThresholds(obj) {
+
+    if (obj) {
+
+        var data = {};
+        data.key = THRESHOLD_DOC;
+        switch(obj.type) {
+            case "temperature": data.max_temperature = obj.value;beak;
+            case "magnitude": data.max_magnitude = obj.value;break;
+        }
+
+        data["meta.types"] = {
+            
+            max_temperature: "numeric",
+            max_magnitude: "numeric"
+        };
+        
+        var resp = document.save(data);
+        if (resp.metadata.status == "failure") {
+
+            log.error("alertmanager.setThresholds:\n" + JSON.stringify(resp) + "\nData:\n" + JSON.stringify(obj));
+            throw resp;
+        }
+    }
+}
+
+function getAlertEmail() {
+    
+    var email = config.DEFAULT_EMAIL;
+    var resp = document.get(config.ALERT_EMAIL_DOC_KEY);
+    if (resp.result) {
+        email = resp.result.email;
+    }else {
+        log.error("alertmanager.getAlertEmail: could not load email document.\n" + JSON.stringify(resp.metadata));
+    }
+    
+    return email;
+}

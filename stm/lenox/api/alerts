@@ -1,0 +1,19 @@
+/**
+ * This API script is used to retrieve the paginated list of alerts
+ * @param {Number} pageNumber: (optional) if provided, specifies what page to return (each page contains max 50 alerts)
+ * @return {Object} array of alerts {epoch, type, value, datetime}
+ */
+
+var log = require("log");
+log.setLevel("info");
+var alertManager = require("../entities/alertmanager");
+
+try {
+    
+    var pageNumber = request.parameters.pageNumber;
+    return alertManager.listAlerts(pageNumber);
+}catch(exception){
+
+    log.error("Caught exception: \n" +  JSON.stringify(exception));
+    return exception;
+}

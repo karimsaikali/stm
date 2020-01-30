@@ -1,0 +1,24 @@
+/**
+ * This API script is used to obtain the list of historical device data 
+ * @param {Boolean} latest: optional, if true, instructs to return latest data record
+ * @return {Object} {device_data_object} if latest, or Array of device_data_object
+ */
+
+var deviceManager = require("../entities/devicemanager");
+var log = require("log");
+log.setLevel("info");
+
+try {
+
+    var body = request.parameters.body ? JSON.parse(request.parameters.body) : {};
+    log.info("body\n:" + request.parameters.body + "\n" + JSON.stringify(body));
+    if (body.latest == "true") {
+        return deviceManager.getLatestData();
+    }
+
+    return deviceManager.listHistoricalData();
+}catch(exception){
+
+    log.error("Caught exception: \n" +  JSON.stringify(exception));
+    return exception;
+}

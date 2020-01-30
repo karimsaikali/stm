@@ -1,0 +1,43 @@
+/**
+ * This script is called by the gateway that sends the data it receives from the device
+ * The script expects the data to be found in the body of the incoming request
+ */
+
+var log = require("log");
+log.setLevel("info");
+var document = require("document");
+var deviceManager = require("../entities/devicemanager");
+var alertManager = require("../entities/alertmanager");
+
+try {
+    
+    // get the message from the body field of the native request object
+    var message = request.body; 
+        
+    // save the resulting data structure in scriptr's data store
+    var data = deviceManager.saveData(message);
+    
+    // publish the data to the dashboard (target all widgets with message tag "latest")
+    publish("responseChannel", {id:"latest", result:data});
+    
+    // read last historical 10 speed values + date at which they were recorded
+    var documentList = deviceManager.listHistoricalData();
+    
+    // publish the historical messages to the dashboard (target all widgets with message tag "historical")
+    var p = publish("responseChannel", {id:"historical", result:documentList});
+    log.info(JSON.stringify(p));
+    
+    // check for glitches, publish to listeners (widgets with message tag "alerts") if found
+    var glitchCount = alertManager.sendAlertIfGlitchDetected(data);    
+    if (glitchCount > 0) {
+        
+        var alertList = alertManager.listAlerts();
+        publish("responseChannel", {id:"alerts", result:alertList});
+    }
+    
+    return request;
+}catch(exception){
+    
+    log.error("Caught exception: \n" +  JSON.stringify(exception) + "\nInitial message:\n" + JSON.stringify(message));
+    return exception;
+}

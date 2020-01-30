@@ -1,0 +1,27 @@
+/**
+ * This API script is invoked to set or get the threshold value
+ * for the magnitude (max value before triggering an alert).
+ * @param {Number} modelValue: (optional) if this parameter is provided, the correpsonding value is used to set the magnitude threshold
+ * @return {Number} the magnitude threshold
+ */
+
+var alertManager = require("../entities/alertmanager");
+
+try {
+    
+    var value = request.parameters.modelValue;
+    
+    // if value sent, slider has been moved by end user, so we need to save the new value
+    if (value) {
+        
+        alertManager.setThresholds({type: "magnitude", value: parseInt(value)});
+        return value;
+    }
+    
+    return alertManager.getThresholds().maxMagnitude;
+}catch(exception) {
+
+    log.error("Caught exception: \n" +  JSON.stringify(exception));
+    return exception;
+}
+return request;

@@ -1,0 +1,84 @@
+/**
+ * Handle read/write operation on device data in the data store.
+ * Calculate magnitude from x, y, z acceleration values
+ */
+
+var log = require("log");
+log.setLevel("info");
+var document = require("document");
+
+const MAX_RECORDS = 20;
+
+/**
+ * @return {Object} {device_data_including_magnitude}
+ */
+function saveData(message) {
+	
+    // clone message
+    var dataObj = JSON.parse(JSON.stringify(message));
+    
+    // calculate magnitude and add it to message
+    dataObj.magnitude = calculateMagnitude(message.acc_z, message.acc_y, message.acc_z);log.info("magnitude: " + JSON.stringify( dataObj.magnitude));
+    
+    // save device data (specify that all fields are of numeric type)
+    dataObj["meta.types"] = {
+        
+        epoch: "numeric",
+        pressure: "numeric",
+    	magnitude: "numeric",
+        temperature: "numeric",
+        humidity: "numeric",
+        acc_X: "numeric",
+        acc_y: "numeric",
+        acc_z: "numeric",
+        magnitude: "numeric"        
+    };
+    
+    var resp = document.save(dataObj);
+    if (resp.metadata.status == "failure") {
+
+        log.error("devicemanager.saveData:\n" + JSON.stringify(resp) + "\nData was:\n "+  JSON.stringify(message));
+        throw resp;
+    }
+    
+    return dataObj;
+}
+
+/**
+ * @return {Object} {last_data_record}
+ */
+function getLatestData() {
+    return listHistoricalData().documents[0];
+}
+
+/**
+ * @return {Object} {count: total_data_record, documents: [list_of_max_records_per_page]}
+ */
+function listHistoricalData(resultsPerPage, pageNumber) {
+    
+    var resultsPerPage = resultsPerPage ? resultsPerPage : MAX_RECORDS;    
+    var queryObj = {
+        
+        fields:"*", 
+        query: 'acc_x is not null', 
+        resultsPerPage: resultsPerPage, 
+        pageNumber: pageNumber ? pageNumber : 1,
+        count: true
+    };
+    
+    var resp = document.query(queryObj); 
+    if (resp.metadata.status == "failure") {
+
+        log.error("devicemanager.listHistoricalData:\n" +  JSON.stringify(resp));
+        throw resp;
+    }
+    
+    return resp.result;
+}
+
+/**
+ * @return {Number} sqrt(acc_x2 + acc_y2 + acc_z2)
+ */
+function calculateMagnitude(acc_x, acc_y, acc_z) {
+    return Math.sqrt(Math.pow(acc_x, 2) + Math.pow(acc_y, 2), Math.pow(acc_z, 2)).toFixed(2);
+}

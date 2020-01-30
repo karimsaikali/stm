@@ -1,0 +1,14 @@
+/*
+ * Default values for business rules (used by /entities/alertmanager)
+ */
+const ALERT_EMAIL_DOC_KEY = "stm_lenox_email_alert";
+var MAX_MAGNITUDE = 1300;
+var MAX_TEMPERATURE = 22;
+
+/*
+ * Installer config section
+ */
+var dashboardChannel = "responseChannel";
+const DEFAULT_EMAIL = "jeff.blauser@st.com";
+const DEFAULT_DEVICE_ID = "stm32l072b";
+const DEFAULT_SUB_DOMAIN = "stm_lenox";
